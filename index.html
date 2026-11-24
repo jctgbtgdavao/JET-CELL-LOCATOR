@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#173d32">
+<title>BS Cell Locator</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+:root{--g:#173d32;--g2:#28634c;--ink:#1d2923;--muted:#64736b;--line:#dce5df}*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,Arial,sans-serif;color:var(--ink);background:#f7f9f7}header{background:var(--g);color:white;padding:28px 18px;text-align:center}
+header h1{margin:0;font-size:clamp(24px,4vw,36px);letter-spacing:.04em}header p{margin:8px 0 0;color:#dcebe2}
+main{max-width:1120px;margin:22px auto;padding:0 16px}.panel{background:white;border:1px solid var(--line);border-radius:16px;padding:18px;margin-bottom:16px;box-shadow:0 4px 18px #173d320a}
+h2{font-size:19px;margin:0 0 12px}.searchrow{display:flex;gap:9px;flex-wrap:wrap}.searchrow input{flex:1;min-width:220px;padding:13px;border:1px solid #bdcbc2;border-radius:10px;font-size:15px}
+button{border:0;border-radius:10px;background:var(--g2);color:white;padding:12px 16px;font-weight:650;cursor:pointer;font-size:14px}button.secondary{background:#e9f0eb;color:var(--g)}
+.note{font-size:13px;color:var(--muted);line-height:1.55;margin:10px 0 0}.status{font-size:14px;color:var(--muted);margin-top:10px;min-height:20px}
+#map{height:440px;border-radius:12px;z-index:1}.layout{display:grid;grid-template-columns:1.2fr .8fr;gap:16px}.results{display:flex;flex-direction:column;gap:10px;max-height:440px;overflow:auto}
+.cell{border:1px solid var(--line);border-radius:12px;padding:13px}.cell h3{margin:0 0 5px;font-size:16px}.cell p{margin:3px 0;color:var(--muted);font-size:13px}
+.distance{font-weight:700;color:var(--g2);font-size:13px}.cell a{display:inline-block;margin-top:9px;color:var(--g2);font-weight:700;text-decoration:none;font-size:13px}
+.empty{color:var(--muted);font-size:14px;padding:14px;border:1px dashed var(--line);border-radius:10px}footer{text-align:center;color:var(--muted);font-size:12px;padding:18px}
+@media(max-width:760px){.layout{grid-template-columns:1fr}#map{height:360px}.results{max-height:none}}
+</style></head><body>
+<header><h1>BS CELL LOCATOR</h1><p>Find a Bible Study Cell near you</p></header>
+<main>
+<section class="panel"><h2>Find the nearest Bible Study Cell</h2>
+<div class="searchrow"><input id="address" type="search" placeholder="Enter your home address, barangay or area" autocomplete="street-address">
+<button id="searchBtn">Search address</button><button id="locBtn" class="secondary">Use my location</button></div>
+<p class="note">Choose address search or allow location access to use your device's current location. Your location is used in this browser to calculate nearby cells; it is not saved by this website.</p>
+<div id="status" class="status" role="status" aria-live="polite">Loading Bible Study Cell locations…</div></section>
+<section class="layout"><div class="panel"><h2>BS Cell Map</h2><div id="map"></div></div>
+<div class="panel"><h2>Nearby BS Cells</h2><div id="results" class="results"><div class="empty">Loading locations…</div></div></div></section>
+</main><footer>Connecting people through God's Word · Please confirm meeting details before visiting.</footer>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// Replace with the published CSV URL from your Google Sheet.
+const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRXBukSaHhstZ4OW2cRhf0xt7_25fnUtsNAKWzyaReo1HpF_0mzx-l4TmcSpyckmdKL5kYIvzkHDKeL/pub?output=csv";
+const map=L.map('map').setView([7.073,125.612],11);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);
+let cells=[],markers=[],userMarker=null,userPoint=null;
+const statusEl=document.getElementById('status'),resultsEl=document.getElementById('results');
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function km(a,b){const R=6371,rad=x=>x*Math.PI/180,dLat=rad(b.lat-a.lat),dLon=rad(b.lng-a.lng),v=Math.sin(dLat/2)**2+Math.cos(rad(a.lat))*Math.cos(rad(b.lat))*Math.sin(dLon/2)**2;return 2*R*Math.asin(Math.sqrt(v));}
+function render(){
+ markers.forEach(m=>map.removeLayer(m));markers=[];
+ cells.forEach(c=>markers.push(L.marker([c.lat,c.lng]).addTo(map).bindPopup(`<b>${esc(c.name)}</b><br>${esc(c.address)}<br>${esc([c.meeting_day,c.meeting_time].filter(Boolean).join(' · '))}`)));
+ if(userMarker)map.removeLayer(userMarker);if(userPoint){userMarker=L.circleMarker([userPoint.lat,userPoint.lng],{radius:8,color:'#28634c',fillColor:'#8bc5a2',fillOpacity:.9}).addTo(map).bindPopup('Your selected location');markers.push(userMarker);}
+ if(!cells.length){resultsEl.innerHTML='<div class="empty">No BS Cell locations are available yet. Please check back later.</div>';return;}
+ const sorted=cells.map(c=>({...c,d:userPoint?km(userPoint,c):null})).sort((a,b)=>userPoint?a.d-b.d:a.name.localeCompare(b.name));
+ resultsEl.innerHTML=sorted.map((c,i)=>`<article class="cell"><h3>${esc(c.name)}</h3>${c.area&&c.area!==c.address?`<p>${esc(c.area)}</p>`:''}<p>${esc(c.address)}</p>${c.meeting_day||c.meeting_time?`<p>${esc([c.meeting_day,c.meeting_time].filter(Boolean).join(' · '))}</p>`:''}${c.contact?`<p>Church contact: ${esc(c.contact)}</p>`:''}${userPoint?`<div class="distance">${c.d.toFixed(2)} km straight-line distance${i===0?' · Nearest':''}</div>`:''}<a target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${c.lat},${c.lng}">Get directions ↗</a></article>`).join('');
+ if(userPoint){let n=sorted[0];statusEl.textContent=`Nearest listed BS Cell: ${n.name}, approximately ${n.d.toFixed(2)} km away in a straight line. Road distance may differ.`;map.fitBounds([[userPoint.lat,userPoint.lng],...cells.map(c=>[c.lat,c.lng])],{padding:[25,25],maxZoom:14});}
+ else{map.fitBounds(L.featureGroup(markers).getBounds().pad(.15));statusEl.textContent=`Showing ${cells.length} Bible Study Cell location(s). Search an address or use your location to find the nearest.`;}
+}
+function parseCSV(t){const rows=[];let row=[],v='',q=false;for(let i=0;i<t.length;i++){let c=t[i];if(c==='"'&&q&&t[i+1]==='"'){v+='"';i++;}else if(c==='"')q=!q;else if(c===','&&!q){row.push(v);v='';}else if((c==='\n'||c==='\r')&&!q){if(c==='\r'&&t[i+1]==='\n')i++;row.push(v);if(row.some(x=>x.trim()))rows.push(row);row=[];v='';}else v+=c;}row.push(v);if(row.some(x=>x.trim()))rows.push(row);let h=rows.shift().map(x=>x.trim().toLowerCase());return rows.map(r=>Object.fromEntries(h.map((k,i)=>[k,(r[i]||'').trim()])));}
+function setRows(rows){
+ // Accept either the user's current headers (JET CELL, FAMILY, LATITUDE, LONGITUDE,
+ // MEETING DATE, MEETING TIME, CONTACT) or the generic template headers.
+ cells=rows.map(r=>{
+   const get=(...keys)=>{for(const k of keys){const v=r[k];if(v!==undefined&&String(v).trim()!=='')return String(v).trim();}return '';};
+   const lat=Number(get('latitude','lat')), lng=Number(get('longitude','long','lng'));
+   const name=get('jet cell','name','bs cell','cell name');
+   const family=get('family','host family');
+   return {name,address:get('address','location')||family||name,area:family,meeting_day:get('meeting date','meeting_day','meeting day'),meeting_time:get('meeting time','meeting_time'),contact:get('contact','contact number','phone'),lat,lng};
+ }).filter(c=>c.name&&Number.isFinite(c.lat)&&Number.isFinite(c.lng)&&Math.abs(c.lat)<=90&&Math.abs(c.lng)<=180);
+ render();
+ if(!cells.length)statusEl.textContent='The sheet loaded, but no valid rows were found. Check that JET CELL, LATITUDE and LONGITUDE contain values.';
+}
+async function loadSheet(){if(!SHEET_CSV_URL.startsWith('https://')){statusEl.textContent='Website setup incomplete: connect the published Google Sheets CSV link.';resultsEl.innerHTML='<div class="empty">The church administrator still needs to connect the published Google Sheet.</div>';return;}try{statusEl.textContent='Loading locations from the church spreadsheet…';let r=await fetch(SHEET_CSV_URL,{cache:'no-store'});if(!r.ok)throw Error();setRows(parseCSV(await r.text()));}catch(e){statusEl.textContent='Unable to load the BS Cell list. Please try again later or contact the church administrator.';resultsEl.innerHTML='<div class="empty">Location data is temporarily unavailable.</div>';}}
+async function geocode(q){statusEl.textContent='Searching address…';let u='https://nominatim.openstreetmap.org/search?format=json&limit=1&q='+encodeURIComponent(q);let r=await fetch(u,{headers:{'Accept-Language':'en'}});if(!r.ok)throw Error('Address search is temporarily unavailable. Try GPS instead.');let d=await r.json();if(!d.length)throw Error('Address not found. Try adding barangay, city or a nearby landmark.');userPoint={lat:+d[0].lat,lng:+d[0].lon};render();}
+document.getElementById('searchBtn').onclick=async()=>{let q=document.getElementById('address').value.trim();if(!q){statusEl.textContent='Enter an address or area first.';return;}try{await geocode(q)}catch(e){statusEl.textContent=e.message}};
+document.getElementById('address').onkeydown=e=>{if(e.key==='Enter')document.getElementById('searchBtn').click()};
+document.getElementById('locBtn').onclick=()=>{if(!navigator.geolocation){statusEl.textContent='Location is not supported by this browser.';return;}statusEl.textContent='Requesting your location…';navigator.geolocation.getCurrentPosition(p=>{userPoint={lat:p.coords.latitude,lng:p.coords.longitude};render()},e=>{statusEl.textContent=e.code===1?'Location permission denied. Search by address instead.':'Could not determine location. Try address search.'},{enableHighAccuracy:false,timeout:12000})};
+loadSheet();
+</script></body></html>
